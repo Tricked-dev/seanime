@@ -10,13 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"seanime/internal/mediaplayers/mpvipc"
-	"seanime/internal/util"
-	"seanime/internal/util/result"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"seanime/internal/mediaplayers/mpvipc"
+	"seanime/internal/util"
+	"seanime/internal/util/result"
 
 	"github.com/rs/zerolog"
 )
@@ -95,10 +96,28 @@ func New(logger *zerolog.Logger, socketName string, appPath string, optionalArgs
 }
 
 func (m *Mpv) GetExecutablePath() string {
-	if m.AppPath != "" {
-		return m.AppPath
+	return m.resolveExecutablePath()
+}
+
+func (m *Mpv) resolveExecutablePath() string {
+	appPath := strings.TrimSpace(m.AppPath)
+	switch appPath {
+	case "", "mpv":
+		if envPath := strings.TrimSpace(os.Getenv("SEANIME_MPV_PATH")); envPath != "" {
+			return envPath
+		}
+		return "mpv"
+	default:
+		return appPath
 	}
-	return "mpv"
+}
+
+func (m *Mpv) logResolvedExecutable(binaryPath string) {
+	m.Logger.Debug().
+		Str("configuredAppPath", strings.TrimSpace(m.AppPath)).
+		Str("resolvedBinaryPath", binaryPath).
+		Str("socket", m.SocketName).
+		Msg("mpv: Resolved executable")
 }
 
 // launchPlayer starts the mpv player and plays the file.
@@ -464,8 +483,10 @@ func (m *Mpv) listenForEvents(ctx context.Context) {
 
 	_, err := m.conn.Get("path")
 	if err != nil {
-		m.Logger.Error().Err(err).Msg("mpv: Failed to get path")
-		return
+		// 'path' is unavailable until mpv loads a file. The property
+		// observer set up below picks it up once it becomes available;
+		// no need to terminate the listener on the initial racy query.
+		m.Logger.Debug().Err(err).Msg("mpv: path not yet set, continuing")
 	}
 
 	_, err = m.conn.Call("observe_property", 42, "time-pos")
@@ -809,15 +830,17 @@ func (m *Mpv) createCmd(filePath string, args ...string) (*exec.Cmd, error) {
 		args = append(args, filePath)
 	}
 
-	binaryPath := "mpv"
-	switch m.AppPath {
-	case "":
-	default:
-		binaryPath = m.AppPath
-	}
+	binaryPath := m.resolveExecutablePath()
+	m.logResolvedExecutable(binaryPath)
 
 	cmd = util.NewCmdCtx(cmdCtx, binaryPath, args...)
 
+	m.Logger.Debug().
+		Str("binaryPath", binaryPath).
+		Str("socket", m.SocketName).
+		Str("filePath", filePath).
+		Strs("args", args).
+		Msg("mpv: Prepared command")
 	m.Logger.Trace().Msgf("mpv: Command: %s", strings.Join(cmd.Args, " "))
 
 	return cmd, nil

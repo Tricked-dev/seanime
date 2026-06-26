@@ -60,6 +60,14 @@ function saveDenshiSettings(settings) {
 let denshiSettings = { ...DENSHI_SETTINGS_DEFAULTS }
 let shouldMaximizeMainWindow = false
 
+function envFlag(name) {
+    return ["1", "true", "yes", "on"].includes(String(process.env[name] || "").toLowerCase())
+}
+
+function getResourcesPath() {
+    return process.env.SEANIME_DENSHI_RESOURCES_PATH || process.resourcesPath
+}
+
 // validates and returns safe window bounds based on the provided raw bounds and current display configurations
 function getSafeMainWindowPlacement(rawBounds) {
     const width = Number(rawBounds?.width)
@@ -532,14 +540,15 @@ function logEnvironmentInfo() {
     logStartupEvent("User data path", app.getPath("userData"))
     logStartupEvent("Executable path", app.getPath("exe"))
 
-    if (process.resourcesPath) {
-        logStartupEvent("Resources path", process.resourcesPath)
+    const resourcesPath = getResourcesPath()
+    if (resourcesPath) {
+        logStartupEvent("Resources path", resourcesPath)
         try {
-            // const resourceFiles = fs.readdirSync(process.resourcesPath);
+            // const resourceFiles = fs.readdirSync(resourcesPath);
             // logStartupEvent('Resources directory contents', JSON.stringify(resourceFiles));
 
             // Check if binaries directory exists
-            const binariesDir = path.join(process.resourcesPath, "binaries")
+            const binariesDir = path.join(resourcesPath, "binaries")
             if (fs.existsSync(binariesDir)) {
                 const binariesFiles = fs.readdirSync(binariesDir)
                 logStartupEvent("Binaries directory contents", JSON.stringify(binariesFiles))
@@ -820,11 +829,11 @@ async function launchSeanimeServer(isRestart) {
             binaryPath = path.join(__dirname, "../binaries", binaryName)
         } else {
             // In production, use the resources path
-            binaryPath = path.join(process.resourcesPath, "binaries", binaryName)
+            binaryPath = path.join(getResourcesPath(), "binaries", binaryName)
         }
 
         logStartupEvent("Using binary", `${binaryPath} (${process.arch})`)
-        logStartupEvent("Resources path", process.resourcesPath)
+        logStartupEvent("Resources path", getResourcesPath())
 
         // Check if binary exists and is executable
         if (!fs.existsSync(binaryPath)) {
@@ -834,7 +843,7 @@ async function launchSeanimeServer(isRestart) {
         }
 
         // Make binary executable (for macOS/Linux)
-        if (process.platform !== "win32") {
+        if (process.platform !== "win32" && !envFlag("SEANIME_DENSHI_SKIP_BINARY_CHMOD")) {
             try {
                 fs.chmodSync(binaryPath, "755")
             } catch (error) {
@@ -1031,6 +1040,7 @@ function createMainWindow() {
         ...savedPlacement.bounds, show: false,
         backgroundColor: "#111111",
         acceptFirstMouse: false,
+        ...(process.env.SEANIME_DENSHI_WM_CLASS ? { wmClass: process.env.SEANIME_DENSHI_WM_CLASS } : {}),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,

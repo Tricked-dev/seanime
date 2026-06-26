@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"seanime/internal/continuity"
 	"seanime/internal/events"
 	"seanime/internal/hook"
@@ -12,8 +16,6 @@ import (
 	"seanime/internal/mediaplayers/mpv"
 	vlc2 "seanime/internal/mediaplayers/vlc"
 	"seanime/internal/util/result"
-	"sync"
-	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -408,6 +410,14 @@ func (m *Repository) SeekTo(seconds float64) error {
 func (m *Repository) Stream(streamUrl string, episode int, mediaId int, windowTitle string) error {
 
 	m.Logger.Debug().Str("streamUrl", streamUrl).Msg("media player: Stream requested")
+	if strings.TrimSpace(streamUrl) == "" {
+		m.Logger.Error().
+			Int("episode", episode).
+			Int("mediaId", mediaId).
+			Str("windowTitle", windowTitle).
+			Msg("media player: Refusing to stream empty URL")
+		return errors.New("stream URL is empty")
+	}
 	var err error
 
 	switch m.Default {
